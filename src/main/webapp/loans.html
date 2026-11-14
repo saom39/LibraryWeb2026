@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>借阅记录查询 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="page-head"><div>
+        <h2>{{ isAdmin ? '借阅记录查询' : '个人借阅查询' }}</h2>
+        <p>{{ isAdmin ? '管理员：关键字查询 / 超期借阅 / 日期范围查询' : '查看我的全部借阅、未还借阅与日期范围内的借阅记录' }}</p>
+    </div></div>
+
+    <div class="card">
+        <div class="form-row">
+            <button v-for="t in tabs" :key="t.key" :class="mode === t.key ? '' : 'btn-ghost'" @click="mode = t.key; query()">{{ t.name }}</button>
+        </div>
+        <div class="form-row" style="margin-top:16px;">
+            <div class="field" v-if="mode === 'keyword' || (isAdmin && mode === 'overdue')" style="max-width:320px;">
+                <label>关键字（模糊匹配用户名 / 图书名）</label>
+                <input v-model.trim="keyword" placeholder="输入关键字" @keyup.enter="query">
+            </div>
+            <template v-if="mode === 'range'">
+                <div class="field" style="max-width:220px;"><label>开始日期</label><input type="date" v-model="start"></div>
+                <div class="field" style="max-width:220px;"><label>结束日期</label><input type="date" v-model="end"></div>
+            </template>
+            <button @click="query">查询</button>
+            <button class="btn-ghost" @click="reset">重置</button>
+        </div>
+        <p class="hint" style="margin:12px 0 0;" v-if="isAdmin && mode === 'overdue'">超期查询：列出尚未归还且已超过应还日期的借阅记录，可叠加关键字过滤。</p>
+    </div>
+
+    <div class="card">
+        <h3>借阅记录 <span style="font-weight:400;color:#6b7280;font-size:12px;">共 {{ rows.length }} 条</span></h3>
+        <div class="table-wrap">
+            <table id="loanTable"><thead><tr>
+                <th>序号</th><th>借阅人</th><th>图书名</th><th>类型</th><th>副本 ID</th>
+                <th>借书日期</th><th>应还日期</th><th>还书日期</th><th>状态</th><th>罚金(元)</th>
+            </tr></thead><tbody>
+                <tr v-for="(l, i) in rows" :key="l.id">
+                    <td>{{ i + 1 }}</td><td>{{ l.userName || '-' }}</td><td><b>{{ l.bookTitle || '-' }}</b></td>
+                    <td>{{ l.bookType || '-' }}</td><td><span :title="l.bookCopyId">{{ shortId(l.bookCopyId) }}</span></td>
+                    <td>{{ Lib.fmt(l.borrowDate) }}</td><td>{{ Lib.fmt(l.dueDate) }}</td>
+                    <td>{{ Lib.fmt(l.returnDate) }}</td>
+                    <td><span class="badge" :class="badge(l.status)">{{ l.status }}</span></td><td>{{ l.fine > 0 ? l.fine.toFixed(2) : '-' }}</td>
+                </tr>
+                <tr v-if="!rows.length"><td colspan="10" class="empty">暂无符合条件的借阅记录</td></tr>
+            </tbody></table>
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, computed, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null), rows = ref([]), mode = ref('all'),
+                  keyword = ref(''), start = ref(''), end = ref('');
+            const isAdmin = computed(function () { return user.value && user.value.role === '管理员'; });
+            const tabs = computed(function () {
+                return isAdmin.value ? [
+                    { key: 'all', name: '全部记录' }, { key: 'keyword', name: '关键字查询' },
+                    { key: 'overdue', name: '超期借阅' }, { key: 'range', name: '日期范围查询' }
+                ] : [
+                    { key: 'all', name: '我的全部借阅' }, { key: 'unreturned', name: '未还借阅' },
+                    { key: 'range', name: '日期范围查询' }
+                ];
+            });
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) Lib.mountNavbar(user.value, 'loans');
+                mode.value = isAdmin.value ? 'all' : 'all';
+                await query();
+                // jQuery：超期行标红
+                jQuery(document).on('mouseenter', '#loanTable tbody tr', function () {
+                    jQuery(this).css('background', '#e6f7f5');
+                }).on('mouseleave', '#loanTable tbody tr', function () {
+                    jQuery(this).css('background', '');
+                });
+            });
+            function shortId(id) { return id ? id.substring(0, 8) + '…' : '-'; }
+            function badge(s) { return s === '已还' ? 'badge-green' : (s === '超期' ? 'badge-red' : 'badge-orange'); }
+            async function query() {
+                const params = isAdmin.value
+                    ? { scope: 'query', mode: mode.value, keyword: keyword.value, start: start.value, end: end.value }
+                    : { mode: mode.value, start: start.value, end: end.value };
+                const r = await Lib.get('api/loans', params);
+                if (r.success) rows.value = r.data || []; else Lib.toast(r.message, 'err');
+            }
+            function reset() { keyword.value = ''; start.value = ''; end.value = ''; mode.value = 'all'; query(); }
+            return { user, rows, mode, keyword, start, end, isAdmin, tabs, shortId, badge, query, reset, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

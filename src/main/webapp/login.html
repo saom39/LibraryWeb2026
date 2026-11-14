@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div class="auth-wrap">
+    <div class="auth-card" id="app">
+        <h1>图书馆管理系统</h1>
+        <p class="sub">LibraryWeb2026 · 请输入账号信息登录</p>
+        <div v-if="error" class="alert alert-error">{{ error }}</div>
+        <div class="field">
+            <label>用户名 <span class="req">*</span></label>
+            <input v-model.trim="form.name" placeholder="请输入姓名/用户名" autocomplete="username">
+        </div>
+        <div class="field">
+            <label>密码 <span class="req">*</span></label>
+            <input type="password" v-model.trim="form.password" placeholder="请输入密码"
+                   autocomplete="current-password" @keyup.enter="submit">
+        </div>
+        <div class="field">
+            <label>验证码 <span class="req">*</span></label>
+            <div class="captcha-row">
+                <input v-model.trim="form.captcha" maxlength="4" placeholder="输入右侧验证码" @keyup.enter="submit">
+                <img id="captchaImg" src="api/captcha" alt="验证码" title="点击刷新验证码">
+            </div>
+        </div>
+        <div class="auth-actions">
+            <button @click="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
+            <button class="btn-ghost" @click="reset">重置</button>
+        </div>
+        <div class="auth-foot">还没有账号？ <a href="register.html">立即注册</a></div>
+        <div class="auth-foot" style="margin-top:10px;font-size:12px;">
+            测试账号：admin / admin123，operator / operator123，student1 / student123，teacher / teacher123
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+    createApp({
+        setup() {
+            const form = reactive({ name: '', password: '', captcha: '' });
+            const error = ref('');
+            const loading = ref(false);
+            onMounted(function () {
+                // jQuery：点击图片刷新验证码
+                jQuery('#captchaImg').on('click', function () { Lib.reloadCaptcha(jQuery(this)); });
+            });
+            async function submit() {
+                error.value = '';
+                if (!form.name || !form.password) { error.value = '请输入用户名和密码'; return; }
+                if (!form.captcha) { error.value = '请输入验证码'; return; }
+                loading.value = true;
+                try {
+                    const r = await Lib.post('api/auth/login', {
+                        name: form.name, password: form.password, captcha: form.captcha
+                    });
+                    if (r.success) {
+                        Lib.toast('登录成功，正在进入首页...', 'ok');
+                        window.location.href = 'index.html';
+                    } else {
+                        error.value = r.message || '登录失败';
+                        form.captcha = '';
+                        Lib.reloadCaptcha(jQuery('#captchaImg'));
+                    }
+                } finally { loading.value = false; }
+            }
+            function reset() {
+                // 重置功能：清空用户名与密码
+                form.name = ''; form.password = ''; form.captcha = ''; error.value = '';
+                Lib.reloadCaptcha(jQuery('#captchaImg'));
+            }
+            return { form, error, loading, submit, reset };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

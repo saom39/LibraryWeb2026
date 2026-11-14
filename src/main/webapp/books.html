@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图书管理 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="page-head"><div><h2>图书管理</h2><p>查询书籍 / 添加书籍 / 编辑 / 废弃 / 副本编辑；关键字为空时查询全部图书</p></div>
+        <span class="role-tag" v-if="user">{{ user.role }}</span></div>
+
+    <!-- 添加图书：操作员专属，可反复添加 -->
+    <div class="card" id="add" v-if="user && user.role === '操作员'">
+        <h3>添加书籍</h3>
+        <p class="hint">可反复增加书籍，直到退出该功能；添加后新书立即显示在列表第一行，并按库存自动生成副本。</p>
+        <div class="form-row">
+            <div class="field"><label>书名 <span class="req">*</span></label><input v-model.trim="form.title"></div>
+            <div class="field"><label>作者</label><input v-model.trim="form.author"></div>
+            <div class="field"><label>类型</label><input v-model.trim="form.type" placeholder="如 计算机"></div>
+            <div class="field"><label>出版社</label><input v-model.trim="form.publisher"></div>
+        </div>
+        <div class="form-row" style="margin-top:14px;">
+            <div class="field"><label>还书期限（天）</label><input type="number" v-model.number="form.days" min="1"></div>
+            <div class="field"><label>价格</label><input type="number" v-model.number="form.price" min="0" step="0.01"></div>
+            <div class="field"><label>库存 <span class="req">*</span></label><input type="number" v-model.number="form.stock" min="1"></div>
+            <div class="field" style="flex:2;"><label>图书简介</label><input v-model.trim="form.introduction"></div>
+            <button @click="addBook" :disabled="loading">添加图书</button>
+        </div>
+    </div>
+    <div class="card" v-else-if="user">
+        <div class="alert alert-info" style="margin:0;">当前角色可查询图书；添加、编辑、废弃与副本编辑由操作员执行。</div>
+    </div>
+
+    <!-- 查询 -->
+    <div class="card">
+        <div class="form-row">
+            <div class="field" style="max-width:380px;"><label>关键字（书名 / 作者 / 类型 / 出版社）</label>
+                <input v-model.trim="keyword" placeholder="为空时查询全部图书" @keyup.enter="load"></div>
+            <button @click="load">查询书籍</button>
+            <button class="btn-ghost" @click="keyword = ''; load()">全部图书</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>图书列表 <span style="font-weight:400;color:#6b7280;font-size:12px;">共 {{ books.length }} 本</span></h3>
+        <div class="table-wrap">
+            <table id="bookTable">
+                <thead><tr><th>序号</th><th>图书 ID</th><th>书名</th><th>作者</th><th>类型</th><th>出版社</th>
+                    <th>期限</th><th>价格</th><th>库存</th><th>可借</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+                <tbody>
+                    <tr v-for="(b, i) in books" :key="b.id">
+                        <td>{{ i + 1 }}</td><td><span :title="b.id">{{ shortId(b.id) }}</span></td>
+                        <td><b>{{ b.title }}</b></td><td>{{ b.author || '-' }}</td><td>{{ b.type || '-' }}</td>
+                        <td>{{ b.publisher || '-' }}</td><td>{{ b.days }} 天</td><td>¥{{ b.price }}</td>
+                        <td>{{ b.stock }}</td><td>{{ b.availableCount }}</td>
+                        <td><span class="badge" :class="b.status === '正常' ? 'badge-green' : 'badge-gray'">{{ b.status }}</span></td>
+                        <td>{{ Lib.fmt(b.createTime) }}</td>
+                        <td class="actions" v-if="user && user.role === '操作员'">
+                            <button class="btn-link" @click="openEdit(b)">编辑</button>
+                            <button class="btn-link" @click="openCopies(b)">副本</button>
+                            <button class="btn-link" style="color:#dc2626;" @click="discard(b)">废弃</button>
+                        </td>
+                        <td v-else>-</td>
+                    </tr>
+                    <tr v-if="!books.length"><td colspan="13" class="empty">暂无图书数据</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 编辑图书弹窗：只更新 6 个字段 -->
+    <div class="modal-mask" v-if="editForm" @click.self="editForm = null">
+        <div class="modal">
+            <div class="modal-head"><h3>编辑图书（不更新库存、副本、状态）</h3><button class="close-x" @click="editForm = null">×</button></div>
+            <div class="modal-body">
+                <div class="form-row" v-for="f in editFields" :key="f.key" style="margin-bottom:12px;">
+                    <div class="field"><label>{{ f.label }}</label>
+                        <input v-model="editForm[f.key]" :type="f.type || 'text'"></div>
+                </div>
+            </div>
+            <div class="modal-foot"><button class="btn-ghost" @click="editForm = null">取消</button>
+                <button @click="saveEdit">保存修改</button></div>
+        </div>
+    </div>
+
+    <!-- 副本管理弹窗 -->
+    <div class="modal-mask" v-if="copyModal" @click.self="copyModal = false">
+        <div class="modal" id="copies">
+            <div class="modal-head"><h3>图书副本编辑：{{ copyTitle }}</h3><button class="close-x" @click="copyModal = false">×</button></div>
+            <div class="modal-body">
+                <p class="hint">新增副本库存 +1；借阅状态下的副本不能删除，删除后库存 -1。</p>
+                <div class="table-wrap" style="max-height:340px;overflow:auto;">
+                    <table><thead><tr><th>序号</th><th>副本 ID</th><th>书名</th><th>借阅状态</th><th>创建时间</th><th>操作</th></tr></thead>
+                        <tbody>
+                            <tr v-for="(c, i) in copies" :key="c.id">
+                                <td>{{ i + 1 }}</td><td><span :title="c.id">{{ shortId(c.id) }}</span></td>
+                                <td>{{ c.bookTitle || '-' }}</td>
+                                <td><span class="badge" :class="c.isBorrowed || c.borrowed ? 'badge-orange' : 'badge-green'">
+                                    {{ c.isBorrowed || c.borrowed ? '已借出' : '未借阅' }}</span></td>
+                                <td>{{ Lib.fmt(c.createTime) }}</td>
+                                <td><button class="btn-link" style="color:#dc2626;" @click="delCopy(c)">删除</button></td>
+                            </tr>
+                            <tr v-if="!copies.length"><td colspan="6" class="empty">该书暂无副本</td></tr>
+                        </tbody></table>
+                </div>
+            </div>
+            <div class="modal-foot"><button class="btn-ghost" @click="copyModal = false">关闭</button>
+                <button class="btn-success" @click="addCopy">新增副本</button></div>
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null), keyword = ref(''), books = ref([]), loading = ref(false);
+            const form = reactive({ title: '', author: '', type: '', publisher: '', days: 30, price: 0, stock: 1, introduction: '' });
+            const editForm = ref(null), copyModal = ref(false), copies = ref([]),
+                  copyBookId = ref(''), copyTitle = ref('');
+            const editFields = [
+                { key: 'title', label: '书名' }, { key: 'author', label: '作者' },
+                { key: 'type', label: '类型' }, { key: 'publisher', label: '出版社' },
+                { key: 'days', label: '还书期限（天）', type: 'number' }, { key: 'price', label: '价格', type: 'number' }
+            ];
+
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) Lib.mountNavbar(user.value, 'books');
+                await load();
+                // jQuery：给表格行加斑马纹
+                jQuery(document).on('mouseenter', '#bookTable tbody tr', function () {
+                    jQuery(this).css('background', '#e6f7f5');
+                }).on('mouseleave', '#bookTable tbody tr', function () {
+                    jQuery(this).css('background', '');
+                });
+            });
+            function shortId(id) { return id ? id.substring(0, 8) + '…' : '-'; }
+            async function load() {
+                const r = await Lib.get('api/books', { keyword: keyword.value });
+                if (r.success) books.value = r.data || []; else Lib.toast(r.message, 'err');
+            }
+            async function addBook() {
+                if (!form.title) { Lib.toast('书名不能为空', 'err'); return; }
+                loading.value = true;
+                try {
+                    const r = await Lib.post('api/books', Object.assign({ action: 'add' }, form));
+                    if (r.success) {
+                        Lib.toast(r.message, 'ok'); books.value = r.data || [];
+                        form.title = ''; form.introduction = '';   // 保留其余输入，方便连续添加
+                    } else Lib.toast(r.message, 'err');
+                } finally { loading.value = false; }
+            }
+            function openEdit(b) {
+                editForm.value = {
+                    id: b.id, title: b.title, author: b.author, type: b.type,
+                    publisher: b.publisher, days: b.days, price: b.price
+                };
+            }
+            async function saveEdit() {
+                const r = await Lib.post('api/books', Object.assign({ action: 'edit' }, editForm.value));
+                if (r.success) { Lib.toast(r.message, 'ok'); books.value = r.data || []; editForm.value = null; }
+                else Lib.toast(r.message, 'err');
+            }
+            async function discard(b) {
+                if (!Lib.confirm('确认废弃《' + b.title + '》？仅当所有副本均已归还时才能废弃。')) return;
+                const r = await Lib.post('api/books', { action: 'discard', id: b.id });
+                if (r.success) { Lib.toast(r.message, 'ok'); books.value = r.data || []; }
+                else Lib.toast(r.message, 'err');
+            }
+            async function openCopies(b) { copyBookId.value = b.id; copyTitle.value = b.title; copyModal.value = true; await loadCopies(); }
+            async function loadCopies() {
+                const r = await Lib.get('api/copies', { bookId: copyBookId.value });
+                if (r.success) copies.value = r.data || []; else Lib.toast(r.message, 'err');
+            }
+            async function addCopy() {
+                const r = await Lib.post('api/copies', { action: 'add', bookId: copyBookId.value });
+                if (r.success) { Lib.toast(r.message, 'ok'); copies.value = r.data || []; await load(); }
+                else Lib.toast(r.message, 'err');
+            }
+            async function delCopy(c) {
+                if (!Lib.confirm('确认删除该副本？')) return;
+                const r = await Lib.post('api/copies', { action: 'delete', bookId: copyBookId.value, copyId: c.id });
+                if (r.success) { Lib.toast(r.message, 'ok'); copies.value = r.data || []; await load(); }
+                else Lib.toast(r.message, 'err');
+            }
+            return { user, keyword, books, loading, form, editForm, editFields, copyModal, copies,
+                     copyTitle, shortId, load, addBook, openEdit, saveEdit, discard,
+                     openCopies, addCopy, delCopy, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

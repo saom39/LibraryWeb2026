@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户注册 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div class="auth-wrap">
+    <div class="auth-card" id="app" style="width:520px;">
+        <h1>用户注册</h1>
+        <p class="sub">选择角色后，会显示该角色需要填写的信息项</p>
+        <div v-if="error" class="alert alert-error">{{ error }}</div>
+        <div v-if="success" class="alert alert-info">{{ success }}，<a href="login.html">前往登录</a></div>
+
+        <div class="form-row">
+            <div class="field"><label>姓名 <span class="req">*</span></label>
+                <input v-model.trim="form.name" placeholder="同名账号不能重复"></div>
+            <div class="field"><label>密码 <span class="req">*</span></label>
+                <input type="password" v-model.trim="form.password" placeholder="请输入密码"></div>
+        </div>
+        <div class="form-row" style="margin-top:14px;">
+            <div class="field"><label>手机号 <span class="req">*</span></label>
+                <input id="phoneInput" v-model.trim="form.phone" maxlength="11" placeholder="11 位手机号，不能重复">
+                <span id="phoneTip" style="font-size:12px;color:#6b7280;">需通过手机号格式校验</span></div>
+            <div class="field"><label>专业</label>
+                <input v-model.trim="form.major" placeholder="如：计算机科学与技术"></div>
+        </div>
+        <div class="field" style="margin-top:14px;">
+            <label>角色 <span class="req">*</span></label>
+            <select v-model="form.role">
+                <option value="学生">学生 Student</option>
+                <option value="教师">教师 Teacher</option>
+                <option value="操作员">操作员 Operator</option>
+                <option value="管理员">管理员 Admin</option>
+            </select>
+        </div>
+
+        <!-- 角色联动字段 -->
+        <div class="card" style="margin:16px 0 0;box-shadow:none;background:#f0fdfa;padding:14px;">
+            <div class="form-row" v-if="form.role === '管理员'">
+                <div class="field"><label>权限等级</label><input type="number" v-model="form.permissionLevel" min="1"></div>
+                <div class="field"><label>入职时间</label><input type="date" v-model="form.entryTime"></div>
+            </div>
+            <div class="form-row" v-else-if="form.role === '操作员'">
+                <div class="field"><label>职务</label><input v-model.trim="form.duty" placeholder="如图书管理员"></div>
+                <div class="field"><label>负责区域</label><input v-model.trim="form.area" placeholder="如图书馆一楼"></div>
+            </div>
+            <div class="form-row" v-else-if="form.role === '教师'">
+                <div class="field"><label>所属学院</label><input v-model.trim="form.college"></div>
+                <div class="field"><label>职称</label><input v-model.trim="form.title" placeholder="如教授"></div>
+            </div>
+            <div class="form-row" v-else>
+                <div class="field"><label>年级</label><input v-model.trim="form.grade" placeholder="如 2024级"></div>
+                <div class="field"><label>所属学院</label><input v-model.trim="form.college"></div>
+            </div>
+        </div>
+
+        <div class="auth-actions" style="margin-top:18px;">
+            <button @click="submit" :disabled="loading">{{ loading ? '提交中...' : '注册' }}</button>
+            <button class="btn-ghost" @click="reset">重置</button>
+        </div>
+        <div class="auth-foot">已有账号？ <a href="login.html">返回登录</a></div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+    createApp({
+        setup() {
+            const blank = function () {
+                return {
+                    name: '', password: '', phone: '', major: '', role: '学生',
+                    permissionLevel: 1, entryTime: '', duty: '', area: '',
+                    grade: '', college: '', title: ''
+                };
+            };
+            const form = reactive(blank());
+            const error = ref(''), success = ref(''), loading = ref(false);
+
+            onMounted(function () {
+                // jQuery：手机号失焦时实时校验格式并给出提示
+                jQuery('#phoneInput').on('blur', function () {
+                    const v = jQuery(this).val();
+                    const ok = /^1[3-9]\d{9}$/.test(v);
+                    jQuery('#phoneTip').text(ok ? '手机号格式正确' : '手机号格式不正确，应为 11 位中国大陆手机号')
+                        .css('color', ok ? '#16a34a' : '#dc2626');
+                });
+            });
+
+            async function submit() {
+                error.value = ''; success.value = '';
+                if (!form.name || !form.password) { error.value = '请输入姓名和密码'; return; }
+                if (!/^1[3-9]\d{9}$/.test(form.phone)) { error.value = '手机号格式不正确'; return; }
+                loading.value = true;
+                try {
+                    const r = await Lib.post('api/register', Object.assign({}, form));
+                    if (r.success) { success.value = r.message; Lib.toast('注册成功', 'ok'); }
+                    else { error.value = r.message; Lib.toast(r.message, 'err'); }
+                } finally { loading.value = false; }
+            }
+            function reset() { Object.assign(form, blank()); error.value = ''; success.value = ''; }
+            return { form, error, success, loading, submit, reset };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

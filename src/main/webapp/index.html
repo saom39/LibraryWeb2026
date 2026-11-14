@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>首页 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="card" v-if="user">
+        <div class="page-head" style="margin-bottom:0;">
+            <div>
+                <h2>欢迎回来，{{ user.name }}</h2>
+                <p>当前角色：<b>{{ user.role }}</b> ｜ 专业：{{ user.major || '-' }} ｜ 最近登录：{{ Lib.fmt(user.loginTime) }}</p>
+            </div>
+            <span class="role-tag">LibraryWeb2026</span>
+        </div>
+    </div>
+
+    <div class="page-head"><div><h2>功能导航</h2><p>根据您的角色显示可用功能，点击卡片进入</p></div></div>
+    <div class="card-grid">
+        <a v-for="(c, i) in cardList" :key="c[2] + i" class="func-card" :href="c[2]">
+            <div class="num">FUNCTION {{ String(i + 1).padStart(2, '0') }}</div>
+            <h4>{{ c[0] }}</h4>
+            <p>{{ c[1] }}</p>
+        </a>
+    </div>
+
+    <div class="card" style="margin-top:20px;">
+        <h3>系统说明</h3>
+        <p style="color:#6b7280;line-height:1.9;margin:0;">
+            本系统基于 Java Servlet + JDBC 开发，服务端使用自研的轻量级 ORM 工具完成对象与数据表的映射，
+            前端采用 HTML + CSS + Vue + jQuery + Axios 构建。页面与接口打包在同一个 war 中，
+            由本机 Tomcat 统一提供，未使用 JSP，也未采用前后端分离部署。数据存储于 MySQL 的 libraryms 库。
+        </p>
+    </div>
+
+    <div class="card" v-if="user">
+        <h3>账号设置</h3>
+        <div v-if="pwdMsg" class="alert" :class="pwdOk ? 'alert-info' : 'alert-error'" style="margin:0 0 12px;">{{ pwdMsg }}</div>
+        <div class="form-row">
+            <div class="field" style="max-width:220px;"><label>原密码 <span class="req">*</span></label>
+                <input type="password" v-model.trim="pwdForm.oldPassword"></div>
+            <div class="field" style="max-width:220px;"><label>新密码 <span class="req">*</span></label>
+                <input type="password" v-model.trim="pwdForm.newPassword" placeholder="至少 6 位"></div>
+            <div class="field" style="max-width:220px;"><label>确认新密码 <span class="req">*</span></label>
+                <input type="password" v-model.trim="pwdForm.confirm"></div>
+            <button @click="changePassword" :disabled="pwdLoading">{{ pwdLoading ? '提交中...' : '修改密码' }}</button>
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, reactive, computed, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null);
+            const cardList = computed(function () { return user.value ? Lib.cards(user.value.role) : []; });
+            const pwdForm = reactive({ oldPassword: '', newPassword: '', confirm: '' });
+            const pwdLoading = ref(false), pwdMsg = ref(''), pwdOk = ref(false);
+            async function changePassword() {
+                pwdMsg.value = ''; pwdOk.value = false;
+                if (!pwdForm.oldPassword || !pwdForm.newPassword || !pwdForm.confirm) { pwdMsg.value = '请填写完整'; return; }
+                if (pwdForm.newPassword !== pwdForm.confirm) { pwdMsg.value = '两次输入的新密码不一致'; return; }
+                if (pwdForm.newPassword.length < 6) { pwdMsg.value = '新密码长度至少 6 位'; return; }
+                pwdLoading.value = true;
+                try {
+                    const r = await Lib.post('api/auth/password', { oldPassword: pwdForm.oldPassword, newPassword: pwdForm.newPassword });
+                    if (r.success) {
+                        pwdOk.value = true; pwdMsg.value = r.message;
+                        pwdForm.oldPassword = ''; pwdForm.newPassword = ''; pwdForm.confirm = '';
+                    } else { pwdMsg.value = r.message; }
+                } finally { pwdLoading.value = false; }
+            }
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) {
+                    Lib.mountNavbar(user.value, 'index');
+                    // jQuery：卡片悬停时高亮编号
+                    jQuery(document).on('mouseenter', '.func-card', function () {
+                        jQuery(this).find('.num').css('letter-spacing', '2px');
+                    }).on('mouseleave', '.func-card', function () {
+                        jQuery(this).find('.num').css('letter-spacing', '1px');
+                    });
+                }
+            });
+            return { user, cardList, pwdForm, pwdLoading, pwdMsg, pwdOk, changePassword, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

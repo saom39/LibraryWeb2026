@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>推荐与审阅图书 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="page-head"><div><h2>推荐图书 / 审阅图书</h2>
+        <p>教师推荐新书，馆内无相关书籍时自动提交审核；管理员审阅后入库或驳回</p></div></div>
+
+    <!-- 教师：推荐图书 -->
+    <template v-if="user && user.role === '教师'">
+        <div class="card">
+            <h3>推荐图书</h3>
+            <div class="form-row">
+                <div class="field"><label>书名 <span class="req">*</span></label><input v-model.trim="form.bookName" placeholder="输入希望推荐的书名"></div>
+                <div class="field"><label>作者</label><input v-model.trim="form.author"></div>
+                <div class="field"><label>出版社</label><input v-model.trim="form.publisher"></div>
+                <div class="field" style="max-width:150px;"><label>价格</label><input type="number" v-model.number="form.price" min="0"></div>
+                <button @click="submit" :disabled="loading">提交推荐</button>
+            </div>
+            <div v-if="result" class="alert" :class="result.submitted ? 'alert-info' : 'alert-error'" style="margin:16px 0 0;">
+                {{ result.message }}
+                <div v-if="result.books && result.books.length" style="margin-top:8px;">
+                    馆内已有 {{ result.books.length }} 本相关书籍：
+                    <span v-for="b in result.books.slice(0, 5)" :key="b.id" style="margin-right:10px;">《{{ b.title }}》{{ b.author }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>我的推荐记录</h3>
+            <div class="table-wrap"><table><thead><tr><th>书名</th><th>作者</th><th>出版社</th><th>价格</th><th>状态</th><th>驳回理由</th><th>提交时间</th></tr></thead>
+                <tbody><tr v-for="r in rows" :key="r.id">
+                    <td><b>{{ r.bookName }}</b></td><td>{{ r.author || '-' }}</td><td>{{ r.publisher || '-' }}</td>
+                    <td>¥{{ r.price }}</td><td><span class="badge" :class="badge(r.status)">{{ r.status }}</span></td>
+                    <td>{{ r.reason || '-' }}</td><td>{{ Lib.fmt(r.createTime) }}</td>
+                </tr><tr v-if="!rows.length"><td colspan="7" class="empty">暂无推荐记录</td></tr></tbody></table></div>
+        </div>
+    </template>
+
+    <!-- 管理员：审阅推荐 -->
+    <template v-else-if="user && user.role === '管理员'">
+        <div class="card">
+            <div class="form-row">
+                <div class="field" style="max-width:220px;"><label>审核状态</label>
+                    <select v-model="status" @change="load"><option value="待审阅">待审阅</option><option value="all">全部</option>
+                        <option value="已入库">已入库</option><option value="已驳回">已驳回</option></select></div>
+                <button class="btn-ghost" @click="load">刷新列表</button>
+            </div>
+        </div>
+        <div class="card">
+            <h3>推荐图书列表 <span style="font-weight:400;color:#6b7280;font-size:12px;">共 {{ rows.length }} 条</span></h3>
+            <div class="table-wrap"><table><thead><tr><th>书名</th><th>作者</th><th>出版社</th><th>价格</th>
+                <th>推荐人</th><th>状态</th><th>驳回理由</th><th>提交时间</th><th>操作</th></tr></thead>
+                <tbody><tr v-for="r in rows" :key="r.id">
+                    <td><b>{{ r.bookName }}</b></td><td>{{ r.author || '-' }}</td><td>{{ r.publisher || '-' }}</td>
+                    <td>¥{{ r.price }}</td><td>{{ r.userName || '-' }}</td>
+                    <td><span class="badge" :class="badge(r.status)">{{ r.status }}</span></td>
+                    <td>{{ r.reason || '-' }}</td><td>{{ Lib.fmt(r.createTime) }}</td>
+                    <td class="actions" v-if="r.status === '待审阅'">
+                        <button class="btn-link" @click="approve(r)">加入图书列表</button>
+                        <button class="btn-link" style="color:#dc2626;" @click="openReject(r)">驳回</button>
+                    </td><td v-else>-</td>
+                </tr><tr v-if="!rows.length"><td colspan="9" class="empty">暂无推荐记录</td></tr></tbody></table></div>
+        </div>
+    </template>
+
+    <div class="card" v-else-if="user">
+        <div class="alert alert-info" style="margin:0;">推荐图书由教师提交、管理员审阅，当前角色无需使用此功能。</div>
+    </div>
+
+    <!-- 驳回理由弹窗 -->
+    <div class="modal-mask" v-if="rejectRow" @click.self="rejectRow = null">
+        <div class="modal">
+            <div class="modal-head"><h3>驳回推荐：{{ rejectRow.bookName }}</h3><button class="close-x" @click="rejectRow = null">×</button></div>
+            <div class="modal-body"><div class="field"><label>驳回理由 <span class="req">*</span></label>
+                <textarea v-model.trim="reason" placeholder="请写出驳回理由"></textarea></div></div>
+            <div class="modal-foot"><button class="btn-ghost" @click="rejectRow = null">取消</button>
+                <button class="btn-danger" @click="doReject">确认驳回</button></div>
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null), rows = ref([]), status = ref('待审阅'), result = ref(null),
+                  loading = ref(false), rejectRow = ref(null), reason = ref('');
+            const form = reactive({ bookName: '', author: '', publisher: '', price: 0 });
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) Lib.mountNavbar(user.value, 'recommend');
+                if (user.value) await load();
+                // jQuery：表格行悬停高亮
+                jQuery(document).on('mouseenter', 'tbody tr', function () { jQuery(this).css('background', '#e6f7f5'); })
+                                .on('mouseleave', 'tbody tr', function () { jQuery(this).css('background', ''); });
+            });
+            function badge(s) {
+                return s === '已入库' ? 'badge-green' : (s === '已驳回' ? 'badge-red' : 'badge-orange');
+            }
+            async function load() {
+                const params = user.value.role === '教师' ? { mine: 1 } : { status: status.value };
+                const r = await Lib.get('api/recommends', params);
+                if (r.success) rows.value = r.data || []; else Lib.toast(r.message, 'err');
+            }
+            async function submit() {
+                if (!form.bookName) { Lib.toast('请输入书名', 'err'); return; }
+                loading.value = true;
+                try {
+                    const r = await Lib.post('api/recommends', Object.assign({ action: 'add' }, form));
+                    if (r.success) {
+                        result.value = { submitted: r.data.submitted, message: r.message, books: r.data.books || [] };
+                        Lib.toast(r.message, 'ok'); form.bookName = ''; await load();
+                    } else Lib.toast(r.message, 'err');
+                } finally { loading.value = false; }
+            }
+            async function approve(r) {
+                if (!Lib.confirm('确认将《' + r.bookName + '》加入图书列表？')) return;
+                const res = await Lib.post('api/recommends', { action: 'approve', id: r.id });
+                if (res.success) { Lib.toast(res.message, 'ok'); await load(); } else Lib.toast(res.message, 'err');
+            }
+            function openReject(r) { rejectRow.value = r; reason.value = ''; }
+            async function doReject() {
+                const res = await Lib.post('api/recommends', { action: 'reject', id: rejectRow.value.id, reason: reason.value });
+                if (res.success) { Lib.toast(res.message, 'ok'); rejectRow.value = null; await load(); }
+                else Lib.toast(res.message, 'err');
+            }
+            return { user, rows, status, result, loading, form, rejectRow, reason,
+                     badge, load, submit, approve, openReject, doReject, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

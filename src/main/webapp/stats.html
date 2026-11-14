@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>借阅数据统计 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="page-head"><div><h2>借阅数据统计</h2><p>管理员专属：按图书类型、按用户专业归集统计借阅次数</p></div>
+        <button class="btn-ghost" @click="load">刷新数据</button></div>
+
+    <div v-if="user && user.role !== '管理员'" class="card">
+        <div class="alert alert-error" style="margin:0;">当前角色无权访问借阅数据统计。</div>
+    </div>
+    <template v-else>
+        <div class="two-col">
+            <div class="card">
+                <h3>按图书类型统计（全部类型均显示）</h3>
+                <div v-for="(row, i) in byType" :key="'t' + i" class="bar-row">
+                    <div class="bar-label">{{ row.name }}</div>
+                    <div class="bar-track"><div class="bar-fill" :data-value="row.total" :style="{ width: pct(row.total, maxType) + '%' }">{{ row.total }}</div></div>
+                </div>
+                <p class="hint" v-if="!byType.length">暂无数据</p>
+            </div>
+            <div class="card">
+                <h3>按用户专业统计</h3>
+                <div v-for="(row, i) in byMajor" :key="'m' + i" class="bar-row">
+                    <div class="bar-label">{{ row.name }}</div>
+                    <div class="bar-track"><div class="bar-fill" :data-value="row.total" :style="{ width: pct(row.total, maxMajor) + '%' }">{{ row.total }}</div></div>
+                </div>
+                <p class="hint" v-if="!byMajor.length">暂无数据</p>
+            </div>
+        </div>
+        <div class="card">
+            <h3>数据明细</h3>
+            <div class="two-col">
+                <div class="table-wrap"><table><thead><tr><th>图书类型</th><th>借阅次数</th></tr></thead><tbody>
+                    <tr v-for="(row, i) in byType" :key="'tt' + i"><td>{{ row.name }}</td><td>{{ row.total }}</td></tr>
+                </tbody></table></div>
+                <div class="table-wrap"><table><thead><tr><th>用户专业</th><th>借阅次数</th></tr></thead><tbody>
+                    <tr v-for="(row, i) in byMajor" :key="'mm' + i"><td>{{ row.name }}</td><td>{{ row.total }}</td></tr>
+                </tbody></table></div>
+            </div>
+        </div>
+    </template>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, computed, nextTick, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null), byType = ref([]), byMajor = ref([]);
+            const maxType = computed(function () { return Math.max(1, ...byType.value.map(function (r) { return r.total; })); });
+            const maxMajor = computed(function () { return Math.max(1, ...byMajor.value.map(function (r) { return r.total; })); });
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) Lib.mountNavbar(user.value, 'stats');
+                if (user.value && user.value.role === '管理员') await load();
+            });
+            function pct(v, max) { return Math.max(2, Math.round(v / max * 100)); }
+            async function load() {
+                const [t, m] = await Promise.all([
+                    Lib.get('api/stats', { type: 'type' }), Lib.get('api/stats', { type: 'major' })
+                ]);
+                if (t.success) byType.value = t.data || []; else Lib.toast(t.message, 'err');
+                if (m.success) byMajor.value = m.data || []; else Lib.toast(m.message, 'err');
+                await nextTick();
+                // jQuery：条形图入场动画
+                jQuery('.bar-fill').each(function () {
+                    const w = jQuery(this).css('width');
+                    jQuery(this).css('width', '0').animate({ width: w }, 700);
+                });
+            }
+            return { user, byType, byMajor, maxType, maxMajor, pct, load, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

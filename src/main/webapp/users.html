@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户信息查询 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="page-head"><div><h2>用户信息查询</h2><p>管理员专属功能：只能查询，不能修改、新增与删除；按创建时间倒序显示</p></div></div>
+
+    <div class="card" v-if="user && user.role !== '管理员'">
+        <div class="alert alert-error" style="margin:0;">当前角色无权访问用户信息查询，请返回首页。</div>
+    </div>
+
+    <template v-else>
+        <div class="card">
+            <div class="form-row">
+                <div class="field" style="max-width:380px;">
+                    <label>关键字（模糊匹配姓名 / 手机号 / 角色 / 专业）</label>
+                    <input v-model.trim="keyword" placeholder="输入关键字后点击查询" @keyup.enter="search">
+                </div>
+                <button @click="search">查询</button>
+                <button class="btn-ghost" @click="clear">清空</button>
+            </div>
+            <p class="hint" style="margin:12px 0 0;">默认不显示用户数据，输入关键字查询后才展示相关用户。</p>
+        </div>
+
+        <div class="card">
+            <h3>用户列表 <span style="font-weight:400;color:#6b7280;font-size:12px;">共 {{ users.length }} 条</span></h3>
+            <div class="table-wrap">
+                <table id="userTable">
+                    <thead><tr><th>序号</th><th>姓名</th><th>角色</th><th>手机号</th><th>专业</th><th>创建时间</th><th>操作</th></tr></thead>
+                    <tbody>
+                        <tr v-for="(u, i) in users" :key="u.id">
+                            <td>{{ i + 1 }}</td><td><b>{{ u.name }}</b></td>
+                            <td><span class="badge badge-green">{{ u.role }}</span></td>
+                            <td>{{ u.phone }}</td><td>{{ u.major || '-' }}</td>
+                            <td>{{ Lib.fmt(u.createTime) }}</td>
+                            <td><button class="btn-link" @click="view(u)">查看</button></td>
+                        </tr>
+                        <tr v-if="!users.length"><td colspan="7" class="empty">{{ searched ? '没有查询到相关用户' : '请输入关键字进行查询' }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </template>
+
+    <!-- 查看详情弹窗 -->
+    <div class="modal-mask" v-if="detail" @click.self="detail = null">
+        <div class="modal">
+            <div class="modal-head"><h3>用户详细信息</h3><button class="close-x" @click="detail = null">×</button></div>
+            <div class="modal-body">
+                <dl class="detail-grid">
+                    <dt>姓名</dt><dd>{{ detail.name }}</dd>
+                    <dt>角色</dt><dd>{{ detail.role }}</dd>
+                    <dt>手机号</dt><dd>{{ detail.phone }}</dd>
+                    <dt>专业</dt><dd>{{ detail.major || '-' }}</dd>
+                    <dt>创建时间</dt><dd>{{ Lib.fmt(detail.createTime) }}</dd>
+                    <dt>更新时间</dt><dd>{{ Lib.fmt(detail.updateTime) }}</dd>
+                    <dt>最后登录</dt><dd>{{ Lib.fmt(detail.loginTime) }}</dd>
+                    <dt>用户 ID</dt><dd>{{ detail.id }}</dd>
+                    <template v-if="detail.role === '管理员'">
+                        <dt>权限等级</dt><dd>{{ detail.permissionLevel || '-' }}</dd>
+                        <dt>入职时间</dt><dd>{{ detail.entryTime || '-' }}</dd>
+                    </template>
+                    <template v-if="detail.role === '操作员'">
+                        <dt>职务</dt><dd>{{ detail.duty || '-' }}</dd>
+                        <dt>负责区域</dt><dd>{{ detail.area || '-' }}</dd>
+                    </template>
+                    <template v-if="detail.role === '学生'">
+                        <dt>年级</dt><dd>{{ detail.grade || '-' }}</dd>
+                        <dt>所属学院</dt><dd>{{ detail.college || '-' }}</dd>
+                    </template>
+                    <template v-if="detail.role === '教师'">
+                        <dt>所属学院</dt><dd>{{ detail.college || '-' }}</dd>
+                        <dt>职称</dt><dd>{{ detail.title || '-' }}</dd>
+                    </template>
+                </dl>
+            </div>
+            <div class="modal-foot"><button class="btn-ghost" @click="detail = null">关闭</button></div>
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null), keyword = ref(''), users = ref([]),
+                  searched = ref(false), detail = ref(null);
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) Lib.mountNavbar(user.value, 'users');
+                // jQuery：表格行悬停高亮
+                jQuery(document).on('mouseenter', '#userTable tbody tr', function () {
+                    jQuery(this).css('background', '#e6f7f5');
+                }).on('mouseleave', '#userTable tbody tr', function () {
+                    jQuery(this).css('background', '');
+                });
+            });
+            async function search() {
+                if (!keyword.value) { Lib.toast('请输入查询关键字', 'info'); return; }
+                const r = await Lib.get('api/users', { keyword: keyword.value });
+                searched.value = true;
+                if (r.success) users.value = r.data || []; else Lib.toast(r.message, 'err');
+            }
+            function clear() { keyword.value = ''; users.value = []; searched.value = false; }
+            function view(u) { detail.value = u; }
+            return { user, keyword, users, searched, detail, search, clear, view, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

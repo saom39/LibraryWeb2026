@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>借书与还书 - 图书馆管理系统</title>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+<div id="navbar"></div>
+<div class="container" id="app">
+    <div class="page-head"><div><h2>借书 / 还书</h2><p>可连续办理多笔借还业务，直到退出该功能；借阅后记录即时刷新</p></div></div>
+
+    <div class="two-col">
+        <!-- 借书 -->
+        <div class="card" id="borrow">
+            <h3>借书</h3>
+            <div class="form-row">
+                <div class="field"><label>图书 ID（可点击下方列表"选择"自动填入）</label>
+                    <input v-model.trim="bookId" placeholder="输入或选择图书 id"></div>
+                <button @click="borrowBook" :disabled="loading">确认借书</button>
+            </div>
+            <p class="hint" style="margin:12px 0;">应还日期由图书的还书期限（days）自动计算。</p>
+            <div class="table-wrap" style="max-height:420px;overflow:auto;">
+                <table><thead><tr><th>图书 ID</th><th>书名</th><th>作者</th><th>类型</th><th>可借</th><th>操作</th></tr></thead>
+                    <tbody>
+                        <tr v-for="b in availableBooks" :key="b.id">
+                            <td><span :title="b.id">{{ shortId(b.id) }}</span></td>
+                            <td><b>{{ b.title }}</b></td><td>{{ b.author || '-' }}</td>
+                            <td>{{ b.type || '-' }}</td><td>{{ b.availableCount }}</td>
+                            <td><button class="btn-link" @click="bookId = b.id">选择</button></td>
+                        </tr>
+                        <tr v-if="!availableBooks.length"><td colspan="6" class="empty">当前没有可借图书</td></tr>
+                    </tbody></table>
+            </div>
+        </div>
+
+        <!-- 还书 -->
+        <div class="card" id="return">
+            <h3>还书</h3>
+            <div class="form-row">
+                <div class="field"><label>图书副本 ID（可点击借阅记录"选择"自动填入）</label>
+                    <input v-model.trim="copyId" placeholder="输入或选择副本 id"></div>
+                <button class="btn-success" @click="returnBook" :disabled="loading">确认还书</button>
+            </div>
+            <p class="hint" style="margin:12px 0;">还书后该记录从未还列表消失；超期归还将标记为"超期"。</p>
+            <div class="table-wrap" style="max-height:420px;overflow:auto;">
+                <table><thead><tr><th>书名</th><th>副本 ID</th><th>借书日期</th><th>应还日期</th><th>状态</th><th>罚金(元)</th><th>操作</th></tr></thead>
+                    <tbody>
+                        <tr v-for="l in myLoans" :key="l.id">
+                            <td><b>{{ l.bookTitle || '-' }}</b></td>
+                            <td><span :title="l.bookCopyId">{{ shortId(l.bookCopyId) }}</span></td>
+                            <td>{{ Lib.fmt(l.borrowDate) }}</td><td>{{ Lib.fmt(l.dueDate) }}</td>
+                            <td><span class="badge" :class="l.status === '未还' ? 'badge-orange' : 'badge-green'">{{ l.status }}</span></td><td>{{ l.fine > 0 ? l.fine.toFixed(2) : '-' }}</td>
+                            <td><button class="btn-link" @click="copyId = l.bookCopyId">选择</button></td>
+                        </tr>
+                        <tr v-if="!myLoans.length"><td colspan="7" class="empty">暂无未归还的借阅记录</td></tr>
+                    </tbody></table>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="js/vendor/jquery.min.js"></script>
+<script src="js/vendor/axios.min.js"></script>
+<script src="js/vendor/vue.global.prod.js"></script>
+<script src="js/common.js"></script>
+<script>
+    const { createApp, ref, onMounted } = Vue;
+    createApp({
+        setup() {
+            const user = ref(null), bookId = ref(''), copyId = ref(''), loading = ref(false);
+            const allBooks = ref([]), myLoans = ref([]);
+            const availableBooks = Vue.computed(function () {
+                return allBooks.value.filter(function (b) { return b.status === '正常' && b.availableCount > 0; });
+            });
+            onMounted(async function () {
+                user.value = await Lib.currentUser();
+                if (user.value) Lib.mountNavbar(user.value, 'borrow');
+                await refresh();
+                // jQuery：选中输入框时高亮
+                jQuery(document).on('focus', 'input', function () { jQuery(this).css('border-color', '#0f766e'); })
+                                .on('blur', 'input', function () { jQuery(this).css('border-color', ''); });
+            });
+            function shortId(id) { return id ? id.substring(0, 8) + '…' : '-'; }
+            async function refresh() {
+                const [b, l] = await Promise.all([
+                    Lib.get('api/books', { keyword: '' }),
+                    Lib.get('api/loans', { mode: 'unreturned' })
+                ]);
+                if (b.success) allBooks.value = b.data || [];
+                if (l.success) myLoans.value = l.data || [];
+            }
+            async function borrowBook() {
+                if (!bookId.value) { Lib.toast('请选择或输入图书 id', 'err'); return; }
+                loading.value = true;
+                try {
+                    const r = await Lib.post('api/loans', { action: 'borrow', bookId: bookId.value });
+                    if (r.success) {
+                        Lib.toast(r.message + '：' + (r.data.bookTitle || ''), 'ok');
+                        bookId.value = ''; await refresh();   // 可继续多次借书
+                    } else Lib.toast(r.message, 'err');
+                } finally { loading.value = false; }
+            }
+            async function returnBook() {
+                if (!copyId.value) { Lib.toast('请选择或输入副本 id', 'err'); return; }
+                loading.value = true;
+                try {
+                    const r = await Lib.post('api/loans', { action: 'return', copyId: copyId.value });
+                    if (r.success) {
+                        Lib.toast(r.message + '（' + r.data.status + '）', 'ok');
+                        copyId.value = ''; await refresh();
+                    } else Lib.toast(r.message, 'err');
+                } finally { loading.value = false; }
+            }
+            return { user, bookId, copyId, loading, availableBooks, myLoans,
+                     shortId, borrowBook, returnBook, Lib };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
